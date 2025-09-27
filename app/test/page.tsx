@@ -1,12 +1,12 @@
-import VideoModal from '@/components/VideoModal'
+import SignIn from '@/components/auth/Sign-in'
 import React from 'react'
 
-function PAge() {
+function Page() {
   return (
     <div>
-      <VideoModal   videoSrc="/sample-video.mp4" onClose={() => {}} />
+      <SignIn isOpen={true} onClose={()=>{alert("Something!")}} />
     </div>
   )
 }
 
-export default PAge
+export default Page

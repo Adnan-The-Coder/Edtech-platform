@@ -1,12 +1,33 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import { useState, useEffect } from "react";
-import { Menu, X, BookOpen, Users, MessageCircle, Shield, Award, Target, Star, ChevronRight } from "lucide-react";
+import { Menu, X, BookOpen, Users, MessageCircle, Shield, Award, Target, Star, ChevronRight, User, LogOut, ChevronDown, ArrowRight } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
+import { supabase } from '@/utils/supabase/client';
+import { API_ENDPOINTS } from '@/config/api';
+import SignIn from "./auth/Sign-in";
+
+// User profile interface
+interface UserProfile {
+  uuid: string;
+  full_name: string;
+  email: string;
+  avatar_url?: string;
+  phone?: string;
+  created_at: string;
+  updated_at: string;
+  user_login_info?: any;
+}
 
 const Navbar = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeLink, setActiveLink] = useState("Home");
+  const [isSignInOpen, setIsSignInOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const navLinks = [
     { name: "About", href: "/about", icon: Users, desc: "Our Legacy & Vision" },
@@ -14,12 +35,106 @@ const Navbar = () => {
     { name: "Contact", href: "/contact", icon: MessageCircle, desc: "Get in Touch" },
   ];
 
+  // Fetch user profile from backend
+  const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => {
+    try {
+      const response = await fetch(API_ENDPOINTS.getProfileByUUID(userId), {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data) {
+          return result.data;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      return null;
+    }
+  };
+
+  // Check user session and fetch profile
+  const checkUserSession = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const profile = await fetchUserProfile(session.user.id);
+        setUser(profile);
+      } else {
+        setUser(null);
+      }
+    } catch (error) {
+      console.error('Error checking user session:', error);
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle sign out
+  const handleSignOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Error signing out:', error);
+      } else {
+        setUser(null);
+        setIsUserMenuOpen(false);
+        // Optionally redirect to home page
+        window.location.href = '/';
+      }
+    } catch (error) {
+      console.error('Unexpected error during sign out:', error);
+    }
+  };
+
+  // Close all dropdowns/menus
+  const closeAllMenus = () => {
+    setIsUserMenuOpen(false);
+    setMenuOpen(false);
+  };
+
+  useEffect(() => {
+    // Check initial session
+    checkUserSession();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        const profile = await fetchUserProfile(session.user.id);
+        setUser(profile);
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   useEffect(() => {
     const handleScroll = () => {
       setScrolled(window.scrollY > 10);
     };
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Close menus when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.user-menu-container')) {
+        setIsUserMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   return (
@@ -86,9 +201,113 @@ const Navbar = () => {
 
               {/* Right Actions */}
               <div className="flex items-center space-x-4">
-                <button className="text-slate-300 hover:text-amber-300 font-bold text-sm transition-all duration-300 py-3 px-6 rounded-lg hover:bg-slate-700/50 border border-transparent hover:border-slate-600/50 uppercase tracking-wider">
-                  Sign In
-                </button>
+                {loading ? (
+                  <div className="w-8 h-8 rounded-full bg-slate-700/50 animate-pulse"></div>
+                ) : user ? (
+                  <div className="relative user-menu-container">
+                    <button 
+                      onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                      className="flex items-center space-x-3 p-2 rounded-xl hover:bg-slate-700/50 transition-all duration-300 group border border-transparent hover:border-amber-500/30"
+                      aria-label="User menu"
+                    >
+                      {user.avatar_url ? (
+                        <div className="relative w-10 h-10 rounded-full border-2 border-emerald-400/50 overflow-hidden group-hover:border-amber-300/70 transition-all duration-300">
+                          <Image 
+                            src={user.avatar_url} 
+                            alt="Officer profile" 
+                            fill
+                            className="object-cover"
+                          />
+                        </div>
+                      ) : (
+                        <div className="w-10 h-10 bg-gradient-to-br from-emerald-700 to-emerald-800 rounded-full flex items-center justify-center group-hover:from-emerald-600 group-hover:to-emerald-700 transition-all duration-300 border-2 border-amber-400/50">
+                          <User className="w-5 h-5 text-amber-300" />
+                        </div>
+                      )}
+                      <div className="text-left">
+                        <span className="text-sm font-bold text-slate-200 group-hover:text-amber-300 transition-colors duration-300 block max-w-32 truncate">
+                          {user.full_name || 'Officer'}
+                        </span>
+                        <span className="text-xs text-emerald-400 font-medium uppercase tracking-wider">
+                          Academy Member
+                        </span>
+                      </div>
+                      <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-amber-300 transition-all duration-300" />
+                    </button>
+
+                    {/* Desktop User Dropdown */}
+                    {isUserMenuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsUserMenuOpen(false)} />
+                        <div className="absolute right-0 top-full mt-3 w-72 bg-gradient-to-br from-slate-900/98 to-emerald-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border-2 border-emerald-500/30 py-2 z-50 overflow-hidden">
+                          {/* User Info Header */}
+                          <div className="px-6 py-5 border-b border-emerald-500/20 bg-gradient-to-r from-emerald-800/20 to-amber-600/10">
+                            <div className="flex items-center space-x-4">
+                              {user.avatar_url ? (
+                                <div className="relative w-14 h-14 rounded-full border-2 border-amber-400/50 overflow-hidden">
+                                  <Image 
+                                    src={user.avatar_url} 
+                                    alt="Officer profile" 
+                                    fill
+                                    className="object-cover"
+                                  />
+                                </div>
+                              ) : (
+                                <div className="w-14 h-14 bg-gradient-to-br from-emerald-700 to-emerald-800 rounded-full flex items-center justify-center border-2 border-amber-400/50">
+                                  <User className="w-7 h-7 text-amber-300" />
+                                </div>
+                              )}
+                              <div>
+                                <p className="font-black text-white text-lg">{user.full_name || 'Officer'}</p>
+                                <p className="text-xs text-emerald-300 truncate font-medium">{user.email}</p>
+                                <p className="text-xs text-amber-400 font-bold uppercase tracking-wider mt-1">Elite Member</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Menu Items */}
+                          <div className="py-2">
+                            <Link 
+                              href="/account" 
+                              className="flex items-center px-6 py-4 text-sm text-slate-200 hover:bg-emerald-700/30 hover:text-amber-300 transition-all duration-300 group"
+                              onClick={closeAllMenus}
+                            >
+                              <User className="w-5 h-5 mr-4 text-emerald-400" />
+                              <span className="font-bold uppercase tracking-wide">My Account</span>
+                              <ArrowRight className="w-4 h-4 ml-auto opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-amber-400" />
+                            </Link>
+                            <Link 
+                              href="/dashboard" 
+                              className="flex items-center px-6 py-4 text-sm text-slate-200 hover:bg-emerald-700/30 hover:text-amber-300 transition-all duration-300 group"
+                              onClick={closeAllMenus}
+                            >
+                              <Target className="w-5 h-5 mr-4 text-emerald-400" />
+                              <span className="font-bold uppercase tracking-wide">Training Dashboard</span>
+                              <ArrowRight className="w-4 h-4 ml-auto opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-amber-400" />
+                            </Link>
+                            <div className="border-t border-emerald-500/20 mt-2 pt-2">
+                              <button 
+                                onClick={handleSignOut}
+                                className="w-full flex items-center px-6 py-4 text-sm text-red-400 hover:bg-red-900/20 hover:text-red-300 transition-all duration-300 font-bold uppercase tracking-wide"
+                              >
+                                <LogOut className="mr-4 w-5 h-5" />
+                                Sign Out
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setIsSignInOpen(true)}
+                    className="text-slate-300 hover:text-amber-300 font-bold text-sm transition-all duration-300 py-3 px-6 rounded-lg hover:bg-slate-700/50 border border-transparent hover:border-slate-600/50 uppercase tracking-wider"
+                  >
+                    Sign In
+                  </button>
+                )}
+                
                 <Link
                   href="/enroll"
                   className="bg-gradient-to-r from-emerald-700 via-green-800 to-emerald-900 hover:from-emerald-600 hover:via-green-700 hover:to-emerald-800 text-white px-8 py-3.5 rounded-lg font-black text-sm tracking-widest uppercase transition-all duration-300 shadow-xl hover:shadow-2xl hover:shadow-emerald-500/25 transform hover:scale-105 hover:-translate-y-0.5 relative overflow-hidden group border-2 border-amber-500/40"
@@ -139,9 +358,64 @@ const Navbar = () => {
 
               {/* Tablet Actions */}
               <div className="flex items-center space-x-3">
-                <button className="text-slate-300 hover:text-amber-300 font-bold text-sm px-5 py-2.5 rounded-lg hover:bg-slate-700/50 transition-all duration-300 uppercase tracking-wide">
-                  Sign In
-                </button>
+                {loading ? (
+                  <div className="w-8 h-8 rounded-full bg-slate-700/50 animate-pulse"></div>
+                ) : user ? (
+                  <div className="relative user-menu-container">
+                    <button 
+                      onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                      className="p-3 text-slate-300 hover:text-amber-300 hover:bg-slate-700/50 rounded-xl transition-all duration-300"
+                      aria-label="User menu"
+                    >
+                      {user.avatar_url ? (
+                        <div className="relative w-6 h-6 rounded-full border border-emerald-400/50 overflow-hidden">
+                          <Image 
+                            src={user.avatar_url} 
+                            alt="User profile"
+                            fill
+                            className="object-cover"
+                          />
+                        </div>
+                      ) : (
+                        <User className="w-6 h-6" />
+                      )}
+                    </button>
+
+                    {/* Tablet User Dropdown - Simplified */}
+                    {isUserMenuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsUserMenuOpen(false)} />
+                        <div className="absolute right-0 top-full mt-2 w-64 bg-gradient-to-br from-slate-900/98 to-emerald-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-emerald-500/30 py-2 z-50">
+                          <div className="px-4 py-3 border-b border-emerald-500/20">
+                            <p className="font-bold text-white text-sm">{user.full_name || 'Officer'}</p>
+                            <p className="text-xs text-emerald-300 truncate">{user.email}</p>
+                          </div>
+                          <Link 
+                            href="/account" 
+                            className="block px-4 py-3 text-sm text-slate-200 hover:bg-emerald-700/30 hover:text-amber-300 transition-colors duration-300"
+                            onClick={closeAllMenus}
+                          >
+                            My Account
+                          </Link>
+                          <button 
+                            onClick={handleSignOut}
+                            className="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-red-900/20 transition-colors duration-300"
+                          >
+                            Sign Out
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setIsSignInOpen(true)}
+                    className="text-slate-300 hover:text-amber-300 font-bold text-sm px-5 py-2.5 rounded-lg hover:bg-slate-700/50 transition-all duration-300 uppercase tracking-wide"
+                  >
+                    Sign In
+                  </button>
+                )}
+                
                 <Link
                   href="/enroll"
                   className="bg-gradient-to-r from-emerald-700 to-green-800 text-white px-6 py-3 rounded-lg font-black text-sm shadow-xl hover:shadow-2xl transition-all duration-300 uppercase tracking-wider border border-amber-500/30"
@@ -169,6 +443,38 @@ const Navbar = () => {
               </Link>
 
               <div className="flex items-center space-x-3">
+                {/* Mobile User/Sign In Button */}
+                {loading ? (
+                  <div className="w-8 h-8 rounded-full bg-slate-700/50 animate-pulse"></div>
+                ) : user ? (
+                  <button
+                    onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                    className="p-2 text-slate-300 hover:text-amber-300 hover:bg-slate-700/50 rounded-lg transition-all duration-300"
+                    aria-label="User menu"
+                  >
+                    {user.avatar_url ? (
+                      <div className="relative w-6 h-6 rounded-full border border-emerald-400/50 overflow-hidden">
+                        <Image 
+                          src={user.avatar_url} 
+                          alt="User profile"
+                          fill
+                          className="object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <User className="w-6 h-6" />
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setIsSignInOpen(true)}
+                    className="p-2 text-slate-300 hover:text-amber-300 hover:bg-slate-700/50 rounded-lg transition-all duration-300"
+                    aria-label="Sign in"
+                  >
+                    <User className="w-6 h-6" />
+                  </button>
+                )}
+
                 {/* Mobile CTA */}
                 <Link
                   href="/enroll"
@@ -201,6 +507,65 @@ const Navbar = () => {
             }`}>
               <div className="bg-gradient-to-br from-slate-800/98 to-emerald-900/98 backdrop-blur-xl border-t border-emerald-700/30 shadow-2xl">
                 <div className="px-4 py-8 space-y-3">
+                  {/* User Section for Mobile */}
+                  {user ? (
+                    <div className="bg-gradient-to-r from-emerald-800/40 to-amber-600/20 rounded-2xl p-5 border-2 border-emerald-500/30 mb-6">
+                      <div className="flex items-center mb-4">
+                        <div className="w-16 h-16 bg-gradient-to-br from-emerald-700 to-emerald-800 rounded-full flex items-center justify-center mr-4 border-2 border-amber-400/50">
+                          {user.avatar_url ? (
+                            <div className="relative w-16 h-16 rounded-full overflow-hidden">
+                              <Image 
+                                src={user.avatar_url} 
+                                alt="Officer profile" 
+                                fill
+                                className="object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <User className="w-8 h-8 text-amber-300" />
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-black text-white text-lg">{user.full_name || 'Officer'}</div>
+                          <div className="text-sm text-emerald-300 truncate">{user.email}</div>
+                          <div className="text-xs text-amber-400 font-bold uppercase tracking-wider mt-1">Elite Member</div>
+                        </div>
+                      </div>
+                      <div className="flex space-x-3">
+                        <Link 
+                          href="/account"
+                          className="flex-1 py-3 px-4 bg-slate-800/50 backdrop-blur-sm rounded-xl text-center text-sm font-bold text-slate-200 hover:bg-slate-700/50 transition-colors duration-300 border border-emerald-500/30 uppercase tracking-wide"
+                          onClick={closeAllMenus}
+                        >
+                          My Account
+                        </Link>
+                        <button 
+                          onClick={handleSignOut}
+                          className="flex-1 py-3 px-4 bg-red-800/30 text-red-300 rounded-xl text-sm font-bold hover:bg-red-800/50 transition-colors duration-300 border border-red-500/30 uppercase tracking-wide"
+                        >
+                          Sign Out
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-gradient-to-r from-emerald-800/40 to-amber-600/20 rounded-2xl p-6 text-center border-2 border-emerald-500/30 mb-6">
+                      <div className="w-20 h-20 bg-gradient-to-br from-emerald-700 to-emerald-800 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-amber-400/50">
+                        <User className="w-10 h-10 text-amber-300" />
+                      </div>
+                      <div className="mb-4 text-slate-200 font-bold text-lg">Join the Elite Academy</div>
+                      <button 
+                        onClick={() => {
+                          setIsSignInOpen(true);
+                          setMenuOpen(false);
+                        }}
+                        className="w-full py-4 px-6 bg-gradient-to-r from-emerald-700 to-green-800 text-white rounded-xl font-black hover:from-emerald-600 hover:to-green-700 transition-all duration-300 shadow-xl uppercase tracking-wider border-2 border-amber-500/40"
+                      >
+                        Access Officer Portal
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Navigation Links */}
                   {navLinks.map((link, index) => {
                     const IconComponent = link.icon;
                     return (
@@ -228,16 +593,6 @@ const Navbar = () => {
                       </Link>
                     );
                   })}
-                  
-                  {/* Mobile Sign In */}
-                  <div className="pt-6 border-t border-slate-600/50">
-                    <button className="w-full text-slate-200 hover:text-amber-300 hover:bg-slate-700/60 font-bold text-base py-5 px-6 rounded-xl transition-all duration-300 text-left border-2 border-slate-600/30 hover:border-amber-500/50 uppercase tracking-wider">
-                      <div className="flex items-center justify-between">
-                        <span>Sign In to Your Account</span>
-                        <ChevronRight size={20} strokeWidth={2.5} className="text-amber-400" />
-                      </div>
-                    </button>
-                  </div>
                 </div>
               </div>
             </div>
@@ -250,6 +605,14 @@ const Navbar = () => {
         <div 
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden transition-opacity duration-300"
           onClick={() => setMenuOpen(false)}
+        />
+      )}
+
+      {/* SignIn Modal Integration */}
+      {isSignInOpen && (
+        <SignIn 
+          isOpen={isSignInOpen} 
+          onClose={() => setIsSignInOpen(false)} 
         />
       )}
 
@@ -273,6 +636,25 @@ const Navbar = () => {
         
         * {
           font-family: 'Inter', sans-serif;
+        }
+
+        /* Custom scrollbar for dropdowns */
+        .overflow-y-auto::-webkit-scrollbar {
+          width: 4px;
+        }
+        
+        .overflow-y-auto::-webkit-scrollbar-track {
+          background: rgba(15, 23, 42, 0.5);
+          border-radius: 2px;
+        }
+        
+        .overflow-y-auto::-webkit-scrollbar-thumb {
+          background: rgba(16, 185, 129, 0.5);
+          border-radius: 2px;
+        }
+        
+        .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+          background: rgba(16, 185, 129, 0.7);
         }
       `}</style>
     </>
